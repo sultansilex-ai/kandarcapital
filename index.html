@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kandar Capital - Pro Trading Journal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.min.js"></script>
+  <style>
+    body { background: linear-gradient(to bottom right, #0f172a, #1e293b); min-height: 100vh; }
+    .bg-pattern { background-image: radial-gradient(circle, rgba(59, 130, 246, 0.1) 1px, transparent 1px); background-size: 50px 50px; position: fixed; inset: 0; z-index: -1; opacity: 0.3; }
+  </style>
+</head>
+<body class="text-white">
+  <div class="bg-pattern"></div>
+
+  <!-- Navbar -->
+  <div class="navbar bg-base-300/80 backdrop-blur-md sticky top-0 z-50 shadow-xl">
+    <div class="flex-1">
+      <a class="btn btn-ghost text-3xl font-bold text-primary">Kandar Capital</a>
+    </div>
+    <div class="flex-none">
+      <ul class="menu menu-horizontal px-1">
+        <li><a onclick="showTab('dashboard')" class="btn btn-ghost">Dashboard</a></li>
+        <li><a onclick="showTab('journal')" class="btn btn-ghost">Journal</a></li>
+        <li><a onclick="showTab('add')" class="btn btn-ghost">Add Trade</a></li>
+        <li><a onclick="showTab('stats')" class="btn btn-ghost">Statistics</a></li>
+        <li><a onclick="showTab('settings')" class="btn btn-ghost">Settings</a></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="container mx-auto p-8">
+    <h1 class="text-4xl font-bold mb-8 text-center">Dashboard Pro</h1>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-6 mb-12">
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Total Trades</div><div class="stat-value text-primary" id="totalTrades">0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Win Rate</div><div class="stat-value text-success" id="winRate">0%</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Net P/L</div><div class="stat-value" id="netPL">$0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Profit Factor</div><div class="stat-value text-accent" id="profitFactor">0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Max Drawdown</div><div class="stat-value text-error" id="maxDD">0%</div></div>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="card bg-base-200/80 shadow-xl p-6"><h2 class="text-2xl font-bold mb-4">Equity Curve</h2><canvas id="equityChart"></canvas></div>
+      <div class="card bg-base-200/80 shadow-xl p-6"><h2 class="text-2xl font-bold mb-4">Monthly P/L</h2><canvas id="monthlyChart"></canvas></div>
+      <div class="card bg-base-200/80 shadow-xl p-6"><h2 class="text-2xl font-bold mb-4">Win/Loss Ratio</h2><canvas id="pieChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- Journal -->
+  <div id="journal" class="container mx-auto p-8 hidden">
+    <div class="flex justify-between mb-6">
+      <h1 class="text-4xl font-bold">Trades Journal</h1>
+      <div>
+        <input type="text" id="searchInput" placeholder="Search..." class="input input-bordered mr-4" onkeyup="searchJournal()">
+        <button class="btn btn-primary" onclick="exportCSV()">Export CSV</button>
+        <button class="btn btn-secondary ml-2" onclick="document.getElementById('importCSV').click()">Import CSV</button>
+        <input type="file" id="importCSV" accept=".csv" class="hidden" onchange="importCSV(this.files[0])">
+      </div>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table table-zebra w-full" id="tradesTable">
+        <thead><tr><th>Tanggal</th><th>Asset</th><th>Dir</th><th>Entry</th><th>Exit</th><th>SL</th><th>TP</th><th>Qty</th><th>P/L</th><th>R:R</th><th>Strategy</th><th>Screenshot</th><th>Actions</th></tr></thead>
+        <tbody id="tradesBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Add/Edit Trade Modal -->
+  <div id="add" class="container mx-auto p-8 hidden">
+    <h1 class="text-4xl font-bold mb-8 text-center">Add / Edit Trade</h1>
+    <div class="card bg-base-200/80 shadow-xl max-w-4xl mx-auto p-8">
+      <form id="tradeForm">
+        <input type="hidden" id="editIndex" value="-1">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div class="form-control"><label class="label">Tanggal</label><input type="date" class="input input-bordered" id="date" required></div>
+          <div class="form-control"><label class="label">Asset/Pair</label><input type="text" class="input input-bordered" id="asset" placeholder="BTC/USDT" required></div>
+          <div class="form-control"><label class="label">Direction</label><select class="select select-bordered" id="direction"><option value="long">Long</option><option value="short">Short</option></select></div>
+          <div class="form-control"><label class="label">Strategy/Tag</label><input type="text" class="input input-bordered" id="strategy" placeholder="Breakout, Scalp, etc."></div>
+          <div class="form-control"><label class="label">Entry Price</label><input type="number" step="any" class="input input-bordered" id="entry" required></div>
+          <div class="form-control"><label class="label">Exit Price</label><input type="number" step="any" class="input input-bordered" id="exit" required></div>
+          <div class="form-control"><label class="label">Stop Loss</label><input type="number" step="any" class="input input-bordered" id="sl" required></div>
+          <div class="form-control"><label class="label">Take Profit</label><input type="number" step="any" class="input input-bordered" id="tp"></div>
+          <div class="form-control"><label class="label">Quantity</label><input type="number" step="any" class="input input-bordered" id="quantity" required></div>
+          <div class="form-control"><label class="label">Screenshot Trade</label><input type="file" accept="image/*" class="file-input file-input-bordered" id="screenshot" onchange="previewImage(this)"></div>
+          <div class="col-span-2"><img id="imagePreview" class="max-w-xs rounded-box hidden"></div>
+          <div class="form-control col-span-2"><label class="label">Reason Entry</label><textarea class="textarea textarea-bordered h-32" id="reason" required></textarea></div>
+          <div class="form-control col-span-2"><label class="label">Notes</label><textarea class="textarea textarea-bordered h-32" id="notes"></textarea></div>
+        </div>
+        <div class="mt-8 text-center">
+          <button type="submit" class="btn btn-primary btn-wide">Save Trade</button>
+          <button type="button" onclick="resetForm()" class="btn btn-ghost ml-4">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Statistics -->
+  <div id="stats" class="container mx-auto p-8 hidden">
+    <h1 class="text-4xl font-bold mb-8 text-center">Advanced Statistics</h1>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Expectancy</div><div class="stat-value" id="expectancy">0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Avg Win</div><div class="stat-value text-success" id="avgWin">$0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Avg Loss</div><div class="stat-value text-error" id="avgLoss">$0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Best Trade</div><div class="stat-value text-success" id="bestTrade">$0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Worst Trade</div><div class="stat-value text-error" id="worstTrade">$0</div></div>
+      <div class="stat bg-base-200/80 rounded-box shadow-xl"><div class="stat-title">Longest Win Streak</div><div class="stat-value text-accent" id="winStreak">0</div></div>
+    </div>
+  </div>
+
+  <!-- Settings -->
+  <div id="settings" class="container mx-auto p-8 hidden">
+    <h1 class="text-4xl font-bold mb-8 text-center">Settings</h1>
+    <div class="card bg-base-200/80 shadow-xl max-w-xl mx-auto p-8">
+      <div class="form-control"><label class="label">Initial Capital</label><input type="number" class="input input-bordered" id="initialCapital" value="10000"></div>
+      <div class="form-control"><label class="label">Currency Symbol</label><input type="text" class="input input-bordered" id="currency" value="$"></div>
+      <div class="form-control mt-6">
+        <label class="label cursor-pointer"><span class="label-text">Dark Mode</span><input type="checkbox" class="toggle toggle-primary" id="darkToggle" checked onchange="toggleTheme()"></label>
+      </div>
+      <div class="mt-8 text-center"><button class="btn btn-primary" onclick="saveSettings()">Save Settings</button></div>
+    </div>
+  </div>
+
+  <script>
+    let trades = JSON.parse(localStorage.getItem('kandarTrades') || '[]');
+    let settings = JSON.parse(localStorage.getItem('kandarSettings') || '{"initial":10000,"currency":"$","theme":"dark"}');
+    let equityChart, monthlyChart, pieChart;
+
+    function applySettings() {
+      document.documentElement.setAttribute('data-theme', settings.theme);
+      document.getElementById('initialCapital').value = settings.initial;
+      document.getElementById('currency').value = settings.currency;
+      document.getElementById('darkToggle').checked = settings.theme === 'dark';
+    }
+
+    function saveSettings() {
+      settings.initial = parseFloat(document.getElementById('initialCapital').value) || 10000;
+      settings.currency = document.getElementById('currency').value || '$';
+      settings.theme = document.getElementById('darkToggle').checked ? 'dark' : 'light';
+      localStorage.setItem('kandarSettings', JSON.stringify(settings));
+      applySettings();
+      renderAll();
+    }
+
+    function toggleTheme() { saveSettings(); }
+
+    function showTab(tab) {
+      document.querySelectorAll('#dashboard,#journal,#add,#stats,#settings').forEach(el => el.classList.add('hidden'));
+      document.getElementById(tab).classList.remove('hidden');
+      if (tab === 'dashboard') renderDashboard();
+      if (tab === 'journal') renderJournal();
+      if (tab === 'stats') renderStats();
+    }
+
+    function saveTrades() {
+      localStorage.setItem('kandarTrades', JSON.stringify(trades));
+      renderAll();
+    }
+
+    function renderAll() {
+      renderDashboard();
+      renderJournal();
+      renderStats();
+    }
+
+    function calculateStats() {
+      if (trades.length === 0) return {total:0,wins:0,winRate:0,netPL:0,grossWin:0,grossLoss:0,profitFactor:0,avgRR:0,maxDD:0,expectancy:0,avgWin:0,avgLoss:0,best:0,worst:0,winStreak:0};
+      const wins = trades.filter(t => t.pl > 0);
+      const losses = trades.filter(t => t.pl <= 0);
+      const grossWin = wins.reduce((s,t) => s + t.pl, 0);
+      const grossLoss = Math.abs(losses.reduce((s,t) => s + t.pl, 0));
+      const profitFactor = grossLoss === 0 ? Infinity : (grossWin / grossLoss).toFixed(2);
+      const expectancy = ((wins.length / trades.length) * (grossWin / wins.length || 0)) + ((losses.length / trades.length) * (losses.reduce((s,t) => s + t.pl, 0) / losses.length || 0));
+
+      // Equity for DD
+      const sorted = [...trades].sort((a,b) => new Date(a.date) - new Date(b.date));
+      let equity = settings.initial;
+      let peak = equity;
+      let maxDD = 0;
+      const equityHistory = [equity];
+      sorted.forEach(t => {
+        equity += t.pl;
+        equityHistory.push(equity);
+        if (equity > peak) peak = equity;
+        const dd = (peak - equity) / peak * 100;
+        if (dd > maxDD) maxDD = dd;
+      });
+
+      // Win streak
+      let currentStreak = 0, maxStreak = 0;
+      sorted.forEach(t => {
+        if (t.pl > 0) { currentStreak++; if (currentStreak > maxStreak) maxStreak = currentStreak; }
+        else currentStreak = 0;
+      });
+
+      return {
+        total: trades.length,
+        wins: wins.length,
+        winRate: (wins.length / trades.length * 100).toFixed(1),
+        netPL: sorted.reduce((s,t) => s + t.pl, 0),
+        profitFactor,
+        maxDD: maxDD.toFixed(2),
+        expectancy: expectancy.toFixed(2),
+        avgWin: wins.length ? (grossWin / wins.length).toFixed(2) : 0,
+        avgLoss: losses.length ? (grossLoss / losses.length).toFixed(2) : 0,
+        best: Math.max(...trades.map(t => t.pl), 0).toFixed(2),
+        worst: Math.min(...trades.map(t => t.pl), 0).toFixed(2),
+        winStreak: maxStreak,
+        grossWin, grossLoss
+      };
+    }
+
+    function renderDashboard() {
+      const s = calculateStats();
+      document.getElementById('totalTrades').textContent = s.total;
+      document.getElementById('winRate').textContent = s.winRate + '%';
+      document.getElementById('netPL').textContent = settings.currency + s.netPL.toFixed(2);
+      document.getElementById('netPL').className = s.netPL > 0 ? 'stat-value text-success' : 'stat-value text-error';
+      document.getElementById('profitFactor').textContent = s.profitFactor;
+      document.getElementById('maxDD').textContent = s.maxDD + '%';
+
+      // Equity Chart
+      const sorted = [...trades].sort((a,b) => new Date(a.date) - new Date(b.date));
+      let equity = settings.initial;
+      const equityData = [{x: 'Start', y: equity}];
+      sorted.forEach(t => { equity += t.pl; equityData.push({x: t.date, y: equity.toFixed(2)}); });
+      if (equityChart) equityChart.destroy();
+      equityChart = new Chart(document.getElementById('equityChart'), {type: 'line', data: {datasets: [{label: 'Equity', data: equityData, borderColor: '#00ffaa', tension: 0.3}]}, options: {scales: {x: {type: 'time', time: {unit: 'day'}}}}});
+
+      // Monthly
+      const monthly = {};
+      sorted.forEach(t => {
+        const m = luxon.DateTime.fromISO(t.date).toFormat('MMM yyyy');
+        monthly[m] = (monthly[m] || 0) + t.pl;
+      });
+      if (monthlyChart) monthlyChart.destroy();
+      monthlyChart = new Chart(document.getElementById('monthlyChart'), {type: 'bar', data: {labels: Object.keys(monthly), datasets: [{label: 'P/L', data: Object.values(monthly), backgroundColor: '#00ffaa'}]}});
+
+      // Pie
+      if (pieChart) pieChart.destroy();
+      pieChart = new Chart(document.getElementById('pieChart'), {type: 'pie', data: {labels: ['Wins', 'Losses'], datasets: [{data: [s.wins, s.total - s.wins], backgroundColor: ['#00ffaa', '#ff0066']}]}});
+    }
+
+    function renderStats() {
+      const s = calculateStats();
+      document.getElementById('expectancy').textContent = s.expectancy;
+      document.getElementById('avgWin').textContent = settings.currency + s.avgWin;
+      document.getElementById('avgLoss').textContent = settings.currency + s.avgLoss;
+      document.getElementById('bestTrade').textContent = settings.currency + s.best;
+      document.getElementById('worstTrade').textContent = settings.currency + s.worst;
+      document.getElementById('winStreak').textContent = s.winStreak;
+    }
+
+    function renderJournal() {
+      const tbody = document.getElementById('tradesBody');
+      tbody.innerHTML = '';
+      [...trades].sort((a,b) => new Date(b.date) - new Date(a.date)).forEach((t, i) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${t.date}</td><td>${t.asset}</td><td>${t.direction.slice(0,1).toUpperCase()}</td>
+          <td>${t.entry}</td><td>${t.exit}</td><td>${t.sl || '-'}</td><td>${t.tp || '-'}</td>
+          <td>${t.quantity}</td><td class="${t.pl > 0 ? 'text-success' : 'text-error'}">${settings.currency}${t.pl.toFixed(2)}</td>
+          <td>${t.rr ? t.rr.toFixed(2) : '-'}</td><td>${t.strategy || '-'}</td>
+          <td>${t.image ? '<img src="'+t.image+'" class="w-20 rounded">' : '-'}</td>
+          <td><button class="btn btn-sm btn-accent mr-2" onclick="editTrade(${i})">Edit</button><button class="btn btn-sm btn-error" onclick="deleteTrade(${i})">Del</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+      searchJournal(); // apply search if any
+    }
+
+    function searchJournal() {
+      const term = document.getElementById('searchInput').value.toLowerCase();
+      const rows = document.querySelectorAll('#tradesBody tr');
+      rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(term) ? '' : 'none';
+      });
+    }
+
+    function editTrade(index) {
+      const t = trades[index];
+      document.getElementById('editIndex').value = index;
+      document.getElementById('date').value = t.date;
+      document.getElementById('asset').value = t.asset;
+      document.getElementById('direction').value = t.direction;
+      document.getElementById('strategy').value = t.strategy || '';
+      document.getElementById('entry').value = t.entry;
+      document.getElementById('exit').value = t.exit;
+      document.getElementById('sl').value = t.sl || '';
+      document.getElementById('tp').value = t.tp || '';
+      document.getElementById('quantity').value = t.quantity;
+      document.getElementById('reason').value = t.reason;
+      document.getElementById('notes').value = t.notes || '';
+      if (t.image) {
+        document.getElementById('imagePreview').src = t.image;
+        document.getElementById('imagePreview').classList.remove('hidden');
+      }
+      showTab('add');
+    }
+
+    function deleteTrade(index) {
+      if (confirm('Yakin delete trade ini?')) {
+        trades.splice(index, 1);
+        saveTrades();
+      }
+    }
+
+    function resetForm() {
+      document.getElementById('tradeForm').reset();
+      document.getElementById('editIndex').value = -1;
+      document.getElementById('imagePreview').classList.add('hidden');
+    }
+
+    function previewImage(input) {
+      if (input.files && input.files[0]) {
+        const reader = new FileReader();
+        reader.onload = e => {
+          document.getElementById('imagePreview').src = e.target.result;
+          document.getElementById('imagePreview').classList.remove('hidden');
+        };
+        reader.readAsDataURL(input.files[0]);
+      }
+    }
+
+    document.getElementById('tradeForm').addEventListener('submit', e => {
+      e.preventDefault();
+      const directionMult = document.getElementById('direction').value === 'long' ? 1 : -1;
+      const entry = parseFloat(document.getElementById('entry').value);
+      const exit = parseFloat(document.getElementById('exit').value);
+      const sl = parseFloat(document.getElementById('sl').value) || null;
+      const tp = parseFloat(document.getElementById('tp').value) || null;
+      const qty = parseFloat(document.getElementById('quantity').value);
+
+      const pl = (exit - entry) * qty * directionMult;
+
+      let risk = 0, reward = 0, rr = null;
+      if (sl) risk = Math.abs(entry - sl) * qty;
+      if (tp) reward = Math.abs(tp - entry) * qty;
+      if (risk > 0) rr = reward / risk;
+
+      const imageInput = document.getElementById('screenshot');
+      const image = imageInput.files[0] ? (reader => { reader.readAsDataURL(imageInput.files[0]); return new Promise(res => reader.onload = () => res(reader.result)); })(new FileReader()) : (document.getElementById('imagePreview').src || null);
+
+      Promise.resolve(image).then(imgData => {
+        const trade = {
+          date: document.getElementById('date').value,
+          asset: document.getElementById('asset').value,
+          direction: document.getElementById('direction').value,
+          strategy: document.getElementById('strategy').value,
+          entry, exit, sl, tp, quantity: qty,
+          reason: document.getElementById('reason').value,
+          notes: document.getElementById('notes').value,
+          pl, rr, risk, reward,
+          image: imgData
+        };
+
+        const index = document.getElementById('editIndex').value;
+        if (index == -1) trades.push(trade);
+        else trades[index] = trade;
+
+        saveTrades();
+        resetForm();
+        showTab('dashboard');
+      });
+    });
+
+    function exportCSV() {
+      let csv = 'Date,Asset,Direction,Strategy,Entry,Exit,SL,TP,Qty,P/L,R:R,Reason,Notes\n';
+      trades.forEach(t => {
+        csv += `${t.date},${t.asset},${t.direction},${t.strategy||''},${t.entry},${t.exit},${t.sl||''},${t.tp||''},${t.quantity},${t.pl},${t.rr||''},"${t.reason}","${t.notes||''}"\n`;
+      });
+      const blob = new Blob([csv], {type: 'text/csv'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'kandar-capital.csv'; a.click();
+    }
+
+    async function importCSV(file) {
+      const text = await file.text();
+      const lines = text.split('\n').slice(1);
+      lines.forEach(line => {
+        if (!line.trim()) return;
+        const [date,asset,direction,strategy,entry,exit,sl,tp,qty,pl,rr,reason,notes] = line.split(',').map(s => s.trim().replace(/^"(.*)"$/, '$1'));
+        if (!date || !asset) return;
+        trades.push({
+          date, asset, direction: direction||'long', strategy: strategy||'', entry: parseFloat(entry), exit: parseFloat(exit),
+          sl: sl ? parseFloat(sl) : null, tp: tp ? parseFloat(tp) : null, quantity: parseFloat(qty),
+          reason, notes: notes||'', pl: parseFloat(pl)||0, rr: rr ? parseFloat(rr) : null, image: null
+        });
+      });
+      saveTrades();
+    }
+
+    // Init
+    applySettings();
+    renderAll();
+    showTab('dashboard');
+  </script>
+</body>
+</html>
